@@ -18,7 +18,11 @@ package controllers
 
 import (
 	"context"
+	"fmt"
+	"k8s.io/apimachinery/pkg/api/errors"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
+	"k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -36,20 +40,78 @@ type LTargetReconciler struct {
 //+kubebuilder:rbac:groups=lz.rexa.god,resources=ltargets,verbs=get;list;watch;create;update;patch;delete
 //+kubebuilder:rbac:groups=lz.rexa.god,resources=ltargets/status,verbs=get;update;patch
 //+kubebuilder:rbac:groups=lz.rexa.god,resources=ltargets/finalizers,verbs=update
+//+kubebuilder:rbac:groups="",resources=services,verbs=get;watch;create
 
 // Reconcile is part of the main kubernetes reconciliation loop which aims to
 // move the current state of the cluster closer to the desired state.
-// TODO(user): Modify the Reconcile function to compare the state specified by
-// the LTarget object against the actual cluster state, and then
-// perform operations to make the cluster state reflect the state specified by
-// the user.
-//
-// For more details, check Reconcile and its Result here:
-// - https://pkg.go.dev/sigs.k8s.io/controller-runtime@v0.11.0/pkg/reconcile
 func (r *LTargetReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
-	_ = log.FromContext(ctx)
-
-	// TODO(user): your logic here
+	l := log.FromContext(ctx)
+	l.Info("Reconciling LTarget")
+	lzList := lzv1alpha1.LTargetList{}
+	err := r.List(ctx, &lzList, client.InNamespace(req.Namespace))
+	if err != nil {
+		return ctrl.Result{}, fmt.Errorf("failed to list LTarget: %w", err)
+	}
+	if len(lzList.Items) == 0 {
+		return ctrl.Result{}, nil
+	}
+	if len(lzList.Items) > 1 {
+		return ctrl.Result{}, fmt.Errorf("found multiple LTarget objects, only one is allowed inside the " +
+			"same namespace") // TODO(@rexagod): handle multiple LTarget objects (in different namespaces?)
+	}
+	lzTarget := lzList.Items[0]
+	lzTarget.Status.ConnectionStatus = "cr found"
+	l.Info("Reconciling LTarget", "name", lzTarget.Name)
+	lzService := &v1.Service{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "Lazarus Media Service",
+			Namespace: req.Namespace,
+			OwnerReferences: []metav1.OwnerReference{
+				{
+					APIVersion: "lz.rexa.god/v1alpha1",
+					Kind:       "LTarget",
+					Name:       lzTarget.Name,
+					UID:        lzTarget.UID,
+				},
+			},
+		},
+		Spec: v1.ServiceSpec{
+			Ports: []v1.ServicePort{
+				{
+					Name:       "Lazarus Mediator Service Port",
+					Port:       lzTarget.Spec.ExternalDelvePort, // TODO(@rexagod): multi-port service?
+					TargetPort: lzTarget.Spec.InternalDelvePortOrName,
+					Protocol:   "TCP",
+				},
+			},
+			Type:     "LoadBalancer",
+			Selector: lzTarget.Spec.LTargetLabel,
+		},
+	}
+	existingLzService := v1.Service{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "Lazarus Media Service",
+			Namespace: req.Namespace,
+		},
+	}
+	err = r.Get(ctx, req.NamespacedName, &existingLzService)
+	if err == nil {
+		l.Info("Lazarus Media Service already exists")
+		lzTarget.Status.ConnectionStatus = "service found"
+		lzService = existingLzService.DeepCopy()
+	} else if err != nil && !errors.IsNotFound(err) {
+		l.Info("Cannot get existing LTarget service")
+		lzTarget.Status.ConnectionStatus = "cannot fetch service"
+		return ctrl.Result{}, fmt.Errorf("failed to get LTarget service: %w", err)
+	} else {
+		l.Info("LTarget service not found, creating a new one")
+		lzTarget.Status.ConnectionStatus = "creating service"
+		err = r.Create(ctx, lzService)
+		if err != nil {
+			return ctrl.Result{}, fmt.Errorf("failed to create LTarget service: %w", err)
+		}
+		lzTarget.Status.ConnectionStatus = "service created"
+	}
 
 	return ctrl.Result{}, nil
 }

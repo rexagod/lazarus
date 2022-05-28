@@ -1,0 +1,50 @@
+apiVersion: operators.coreos.com/v1alpha1
+kind: ClusterServiceVersion
+metadata:
+  annotations:
+    alm-examples: '[]'
+    capabilities: Basic Install
+  name: lazarus.v0.0.0
+  namespace: placeholder
+spec:
+  apiservicedefinitions: {}
+  customresourcedefinitions:
+    owned:
+    - description: LTarget is the Schema for the ltargets API
+      displayName: LTarget
+      kind: LTarget
+      name: ltargets.lz.rexa.god
+      version: v1alpha1
+  description: A convenience-first delve mediator to provide debugging support to
+    IDEs.
+  displayName: Lazarus
+  icon:
+  - base64data: ""
+    mediatype: ""
+  install:
+    spec:
+      deployments: null
+    strategy: ""
+  installModes:
+  - supported: false
+    type: OwnNamespace
+  - supported: false
+    type: SingleNamespace
+  - supported: false
+    type: MultiNamespace
+  - supported: true
+    type: AllNamespaces
+  keywords:
+  - debug
+  - delve
+  links:
+  - name: Lazarus
+    url: https://lazarus.domain
+  maintainers:
+  - email: rexagod@gmail.com
+    name: Pranshu Srivastava
+  maturity: alpha
+  provider:
+    name: rexagod
+    url: https://github.com/rexagod
+  version: 0.0.0
